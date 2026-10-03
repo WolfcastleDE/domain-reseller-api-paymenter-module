@@ -1,0 +1,6 @@
+/vendor/
+/dist/
+/.phpunit.cache/
+.phpunit.result.cache
+composer.lock
+*.zip
