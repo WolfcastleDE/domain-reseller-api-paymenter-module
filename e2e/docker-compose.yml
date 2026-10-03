@@ -1,0 +1,97 @@
+# Local end-to-end environment: Paymenter + this extension + the Domain Reseller API backend (sandbox).
+#
+#   ./e2e/run.sh            build, provision and test everything
+#   ./e2e/run.sh down       remove the environment again
+#
+# Paymenter shares the network namespace of the API container, so the extension can reach the
+# backend at http://localhost:3000 (plain HTTP is only accepted for localhost).
+name: dra-paymenter-e2e
+
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: domain_reseller
+    volumes:
+      - ./mysql-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot", "--silent"]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+
+  api:
+    image: oven/bun:1
+    entrypoint: ["sh", "/e2e/api-entrypoint.sh"]
+    environment:
+      DATABASE_URL: mysql://root:root@db:3306/domain_reseller
+      JWT_SECRET: e2e-jwt-secret-e2e-jwt-secret-e2e-0123
+      APP_ENCRYPTION_KEY: e2e-encryption-key-e2e-encryption-key-0123
+      NODE_ENV: development
+      PORT: "3000"
+    volumes:
+      - ${BACKEND_PATH:-../../domain-reseller-api}:/src:ro
+      - ./api-entrypoint.sh:/e2e/api-entrypoint.sh:ro
+      - ./e2e-backend-setup.ts:/e2e/e2e-backend-setup.ts:ro
+      - shared:/shared
+      - api-app:/app
+    ports:
+      - "127.0.0.1:${PAYMENTER_PORT:-18080}:80"   # Paymenter (shares this network namespace)
+      - "127.0.0.1:${API_PORT:-13000}:3000"       # Domain Reseller API
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "test -s /shared/api_key && bun -e \"const r = await fetch('http://localhost:3000/api/v1/health/'); process.exit(r.ok ? 0 : 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+
+  paymenter:
+    image: ${PAYMENTER_IMAGE:-ghcr.io/paymenter/paymenter:latest}
+    network_mode: service:api
+    entrypoint: ["/bin/ash", "/e2e/paymenter-entrypoint.sh"]
+    command: ["supervisord", "-n", "-c", "/etc/supervisord.conf"]
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_DATABASE: paymenter
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      APP_ENV: local
+      APP_DEBUG: "true"
+      CACHE_STORE: file
+      SESSION_DRIVER: file
+      QUEUE_CONNECTION: sync
+    volumes:
+      - ../DomainResellerApi:/e2e/extension:ro
+      - ./paymenter-entrypoint.sh:/e2e/paymenter-entrypoint.sh:ro
+      - ./scripts:/e2e/scripts:ro
+      - shared:/shared
+      - paymenter-var:/app/var
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Browser tests (only started by run.sh)
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.56.1-noble
+    profiles: ["tests"]
+    network_mode: host   # reaches Paymenter through the published port, like a real browser
+    working_dir: /e2e/ui
+    entrypoint: ["sh", "-c", "cd /tmp && [ -d node_modules/playwright ] || npm i --silent playwright@1.56.1 >/dev/null 2>&1; NODE_PATH=/tmp/node_modules node /e2e/ui/$${TEST:-client-area}.cjs"]
+    environment:
+      BASE_URL: http://127.0.0.1:${PAYMENTER_PORT:-18080}
+    volumes:
+      - ./ui:/e2e/ui:ro
+      - shared:/shared
+      - ./artifacts:/artifacts
+
+volumes:
+  db:
+  shared:
+  api-app:
+  paymenter-var:

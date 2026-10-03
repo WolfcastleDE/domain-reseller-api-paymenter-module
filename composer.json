@@ -1,0 +1,33 @@
+{
+    "name": "wolfscastle/domain-reseller-api-paymenter",
+    "description": "Paymenter server extension for the Domain Reseller API (domain-reseller-api.de)",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3",
+        "ext-json": "*"
+    },
+    "suggest": {
+        "ext-intl": "Required for internationalised domain names (IDN)"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Paymenter\\Extensions\\Servers\\DomainResellerApi\\": "DomainResellerApi/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/",
+            "App\\": "tests/Stubs/App/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

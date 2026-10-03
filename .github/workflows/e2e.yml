@@ -1,0 +1,46 @@
+name: E2E
+
+# Runs the Docker end-to-end suite (Paymenter + extension + Domain Reseller API sandbox).
+# The backend repository is private: add a fine-grained token with read access to
+# WolfcastleDE/domain-reseller-api as the secret BACKEND_REPO_TOKEN.
+on:
+  workflow_dispatch:
+    inputs:
+      backend_ref:
+        description: "Branch/tag of WolfcastleDE/domain-reseller-api"
+        default: "main"
+      paymenter_image:
+        description: "Paymenter image"
+        default: "ghcr.io/paymenter/paymenter:latest"
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout backend
+        uses: actions/checkout@v4
+        with:
+          repository: WolfcastleDE/domain-reseller-api
+          ref: ${{ inputs.backend_ref }}
+          token: ${{ secrets.BACKEND_REPO_TOKEN || github.token }}
+          path: backend
+
+      - name: Run end-to-end tests
+        env:
+          BACKEND_PATH: ${{ github.workspace }}/backend
+          PAYMENTER_IMAGE: ${{ inputs.paymenter_image }}
+        run: ./e2e/run.sh
+
+      - name: Logs
+        if: failure()
+        run: docker compose -f e2e/docker-compose.yml logs --tail 200 api paymenter
+
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: e2e/artifacts/
